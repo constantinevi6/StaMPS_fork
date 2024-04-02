@@ -30,7 +30,7 @@ phname=['pscands.1.ph'];            % for each PS candidate, a float complex val
 ijname=['pscands.1.ij'];            % ID# Azimuth# Range# 1 line per PS candidate
 bperpname=['bperp.1.in'];           % in meters 1 line per ifg
 dayname=['day.1.in'];               % YYYYMMDD, 1 line per ifg
-masterdayname=['master_day.1.in'];  % YYYYMMDD
+masterdayname=['reference_day.1.in'];  % YYYYMMDD
 llname=['pscands.1.ll'];            % 2 float values (lon and lat) per PS candidate
 daname=['pscands.1.da'];            % 1 float value per PS candidate
 hgtname=['pscands.1.hgt'];          % 1 float value per PS candidate
@@ -50,9 +50,17 @@ lasavename=['la',num2str(psver)];
 matlab_version = version('-release');           % [DB] getting the matlab version
 matlab_version = str2num(matlab_version(1:4));  % [DB] the year
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% code that prevent slc not generate error
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if ~exist(dayname,'file')
     dayname= ['../',dayname];
 end
+
 day=load(dayname);
 year=floor(day/10000);
 month=floor((day-year*10000)/100);
@@ -113,16 +121,22 @@ if exist(calname,'file')
     caldate=zeros(length(calfile),1);
     for i = 1 : length(calfile)
         aa=strread(calfile{i},'%s','delimiter','/');
-        try 
-            bb=str2num(aa{end}(1:8));
-            if isempty(bb)
-                bb=str2num(aa{end-1}(1:8));
-            end
-        catch
-            if strcmpi(aa{end-1},'master');
-                bb=str2num(aa{end-2}(end-7:end));
-            end            
+        if regexp(aa{end},"reference.slc*")
+            bb=str2num(aa{end-2}(7:14));
+        else
+            bb=str2num(aa{end-1}(1:8));
         end
+        % try 
+        %     bb=str2num(aa{end}(1:8));
+        %     if isempty(bb)
+        %         bb=str2num(aa{end-1}(1:8));
+        %     end
+        % catch
+        %     if strcmpi(aa{end-1},'master');
+        %         bb=str2num(aa{end-2}(end-7:end));
+        %     end            
+        % end
+        
         caldate(i)=bb;    
     end
     not_master_ix=caldate~=master_day_yyyymmdd;
@@ -133,7 +147,6 @@ if exist(calname,'file')
 else
     calconst=ones(n_ifg-1,1);
 end
-
 fid=fopen(phname,'r');
 ph=zeros(n_ps,n_ifg-1,'single');
 byte_count=n_ps*2;

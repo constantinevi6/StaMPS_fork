@@ -165,11 +165,25 @@ else
     else
          rand_ifg=2*pi*rand(n_rand,n_ifg);
     end
-    for i=n_rand:-1:1      
-        [K_r,C_r,coh_r]=ps_topofit(exp(j*rand_ifg(i,:)),bperp,n_trial_wraps,'n');
-        coh_rand(i)=coh_r(1);
+    % coh_rand=squeeze(zeros(n_rand,1));
+    % for i=n_rand:-1:1   
+    %     [K_r,C_r,coh_r]=ps_topofit(exp(j*rand_ifg(i,:)),bperp,n_trial_wraps,'n');
+    %     coh_rand(i)=coh_r(1);
+    % end
+    nbatch=floor(16e9/64/n_ifg/(n_trial_wraps*8*2)/2);
+    logit(sprintf('gpuArray allocation size: %i',nbatch))
+    bperp_=gpuArray(repmat(bperp,1,nbatch)');
+    coh_rand=squeeze(zeros(n_rand,1));
+    for i=1:nbatch:n_rand
+        i2=min([i+nbatch-1 n_rand]);
+        bperp_=bperp_(1:i2-i+1,:);
+        rand_ph=gpuArray(exp(j*rand_ifg(i:i2,:)));
+        [K_r,C_r,coh_r]=ps_topofit_gpu(rand_ph,bperp_,n_trial_wraps);
+        coh_rand(i:i2)=gather(coh_r(:,1));
+        clear K_r C_r coh_r 
     end
-    clear rand_ifg
+    clear rand_ifg bperp_ rand_ph
+
     coh_bins=[0.005:0.01:0.995];
     Nr=hist(coh_rand,coh_bins); % distribution of random phase points
     i=length(Nr);
@@ -222,7 +236,8 @@ while loop_end_sw==0
     end
     
     for i=1:n_ifg
-        ph_filt(:,:,i)=clap_filt(ph_grid(:,:,i),clap_alpha,clap_beta,n_win*0.75,n_win*0.25,low_pass);
+        % ph_filt(:,:,i)=clap_filt(ph_grid(:,:,i),clap_alpha,clap_beta,n_win*0.75,n_win*0.25,low_pass);
+        ph_filt(:,:,i)=clap_filt_mex(ph_grid(:,:,i),clap_alpha,clap_beta,n_win*0.75,n_win*0.25,low_pass);
     end
         
     for i=1:n_ps
@@ -241,22 +256,21 @@ while loop_end_sw==0
         logit('Estimating topo error...')
         step_number=2;
 
-        for i=1:n_ps
-            psdph=ph(i,:).*conj(ph_patch(i,:));
-            if sum(psdph==0)==0  % insist on a non-null value in every ifg
-                [Kopt,Copt,cohopt,ph_residual]=ps_topofit(psdph,bp.bperp_mat(i,:)',n_trial_wraps,'n');
-                K_ps(i)=Kopt(1);
-                C_ps(i)=Copt(1);
-                coh_ps(i)=cohopt(1);
-                N_opt(i)=length(Kopt);
-                ph_res(i,:)=angle(ph_residual);
-            else
-                K_ps(i)=nan;
-                coh_ps(i)=0;
-            end
-            if i/100000==floor(i/100000)
-                logit(sprintf('%d PS processed',i),2)
-            end
+        % bigger block size 100000 is recommended (?) 
+        bk_size=floor(30e6/64/n_ifg/(n_trial_wraps*8*2)/2)*1e3;
+        for i=1:bk_size:n_ps
+            ni=i+bk_size-1;
+            ni=min([ni n_ps]);
+        
+            psdph=ph(i:ni,:).*conj(ph_patch(i:ni,:));
+            bperp=bp.bperp_mat(i:ni,:); 
+            [Kopt,Copt,cohopt,ph_residual]=ps_topofit_vectorize(psdph,bperp,n_trial_wraps);
+            K_ps(i:ni)=Kopt;
+            C_ps(i:ni)=Copt;
+            coh_ps(i:ni)=cohopt;
+            N_opt(i:ni)=1;
+            ph_res(i:ni,:)=angle(ph_residual);
+            logit(sprintf('%d PS processed',ni),2)
         end
         
 
